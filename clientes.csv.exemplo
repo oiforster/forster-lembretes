@@ -1,0 +1,4 @@
+cliente;whatsapp;dia_vencimento;chave_pix;ativo
+Nome do Cliente;5551999999999;10;00.000.000/0001-00;sim
+Outro Cliente;5551988888888;5;email@dominio.com;sim
+Cliente Pausado;5551977777777;20;000.000.000-00;não

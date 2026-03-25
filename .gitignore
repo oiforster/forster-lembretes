@@ -1,0 +1,10 @@
+node_modules/
+sessao/
+logs/
+clientes.csv
+dist/
+out/
+.DS_Store
+Icon
+Icon?
+.wwebjs_cache/

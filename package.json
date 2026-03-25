@@ -1,0 +1,10 @@
+{
+  "name": "forster-lembretes",
+  "version": "1.0.0",
+  "description": "Lembretes automáticos de pagamento via WhatsApp — Forster Filmes",
+  "main": "disparar.js",
+  "dependencies": {
+    "whatsapp-web.js": "^1.26.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
