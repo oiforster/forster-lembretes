@@ -68,72 +68,16 @@ let isQuitting = false
 // ---------------------------------------------------------------------------
 // Tray — ícone na barra de menu
 // ---------------------------------------------------------------------------
-// Gera os 3 ícones de tray em PNG via Swift (emoji 💸 + bolinha de status)
+// Ícones de tray pré-gerados em assets/tray/ (cross-platform)
 const ICONES_TRAY = {}
 
-function gerarIconesTray () {
-  const { execSync } = require('child_process')
-  const os = require('os')
-
-  // 3 variantes: colorido (on), cinza (off/erro), apagado (pausado)
-  const variantes = [
-    { nome: 'verde',    modo: 'color' },
-    { nome: 'vermelho', modo: 'gray'  },
-    { nome: 'amarelo',  modo: 'dim'   }
-  ]
-
-  for (const { nome, modo } of variantes) {
-    const destino = path.join(os.tmpdir(), `fl-tray-${nome}.png`)
+function carregarIconesTray () {
+  const trayDir = path.join(ROOT, 'assets', 'tray')
+  for (const nome of ['verde', 'vermelho', 'amarelo']) {
+    const arquivo = path.join(trayDir, `tray-${nome}.png`)
     try {
-      execSync(`swift - <<'SWIFT'
-import AppKit
-import CoreImage
-
-let px = CGFloat(44)
-let modo = "${modo}"
-
-// Desenha o emoji colorido em 44x44 (Retina 2x)
-let base = NSImage(size: NSSize(width: px, height: px))
-base.lockFocus()
-if let font = NSFont(name: "Apple Color Emoji", size: 30) {
-    let attrs: [NSAttributedString.Key: Any] = [.font: font]
-    NSAttributedString(string: "💸", attributes: attrs).draw(at: NSPoint(x: 7, y: 7))
-}
-base.unlockFocus()
-
-var final: NSImage = base
-
-if modo == "gray" {
-    // Converte para escala de cinza via CIFilter
-    if let tiff = base.tiffRepresentation, let ci = CIImage(data: tiff) {
-        let f = CIFilter(name: "CIColorMonochrome")!
-        f.setValue(ci, forKey: kCIInputImageKey)
-        f.setValue(CIColor(red: 0.5, green: 0.5, blue: 0.5), forKey: kCIInputColorKey)
-        f.setValue(1.0, forKey: kCIInputIntensityKey)
-        let ctx = CIContext()
-        if let cg = ctx.createCGImage(f.outputImage!, from: ci.extent) {
-            final = NSImage(cgImage: cg, size: NSSize(width: px, height: px))
-        }
-    }
-} else if modo == "dim" {
-    // Apaga levemente com overlay semitransparente
-    let dim = NSImage(size: NSSize(width: px, height: px))
-    dim.lockFocus()
-    base.draw(in: NSRect(x: 0, y: 0, width: px, height: px),
-              from: NSRect(x: 0, y: 0, width: px, height: px),
-              operation: .sourceOver, fraction: 0.45)
-    dim.unlockFocus()
-    final = dim
-}
-
-if let tiff = final.tiffRepresentation,
-   let rep = NSBitmapImageRep(data: tiff),
-   let png = rep.representation(using: .png, properties: [:]) {
-    try! png.write(to: URL(fileURLWithPath: "${destino}"))
-}
-SWIFT`)
-      ICONES_TRAY[nome] = nativeImage.createFromPath(destino).resize({ width: 22, height: 22, quality: 'best' })
-    } catch (e) { console.error('Erro ao gerar ícone tray:', e.message) }
+      ICONES_TRAY[nome] = nativeImage.createFromPath(arquivo).resize({ width: 22, height: 22, quality: 'best' })
+    } catch (e) { console.error(`Erro ao carregar ícone tray-${nome}:`, e.message) }
   }
 }
 
@@ -164,7 +108,7 @@ function atualizarTray () {
     { label: '💸 Forster Lembretes', enabled: false },
     { label: statusLabel,            enabled: false },
     { type: 'separator' },
-    { label: 'Abrir',  click: () => { if (process.platform === 'darwin') app.dock.show(); mainWindow?.show(); mainWindow?.focus() } },
+    { label: 'Abrir',  click: () => { if (process.platform === 'darwin') app.dock?.show(); mainWindow?.show(); mainWindow?.focus() } },
     { type: 'separator' },
     {
       label: pausado ? '▶ Reativar serviço' : '⏸ Pausar serviço',
@@ -320,7 +264,7 @@ async function verificarEDisparar () {
     }
   }
 
-  // Notificação macOS
+  // Notificação do sistema
   if (enviados.length === 0 && erros.length === 0) {
     new Notification({ title: '💸 Forster Lembretes', body: 'Sem mensagens para hoje.' }).show()
   } else if (erros.length === 0) {
@@ -341,7 +285,7 @@ function criarJanela () {
     height: 640,
     minWidth: 800,
     minHeight: 520,
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#f5f5f7',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -357,26 +301,26 @@ function criarJanela () {
     if (isQuitting) return // permite encerrar quando app.quit() for chamado
     e.preventDefault()
     mainWindow.hide()
-    if (process.platform === 'darwin') app.dock.hide() // sai do Dock, fica só na barra
+    if (process.platform === 'darwin') app.dock?.hide() // sai do Dock, fica só na barra
   })
 
   criarCliente()
-  gerarIconesTray()
+  carregarIconesTray()
   criarTray()
 }
 
 app.whenReady().then(() => {
-  // Ícone no Dock
-  const dockIcon = path.join(__dirname, '..', 'assets', 'icon.png')
-  if (process.platform === 'darwin' && require('fs').existsSync(dockIcon)) {
-    app.dock.setIcon(dockIcon)
+  // Ícone no Dock (macOS only)
+  if (process.platform === 'darwin') {
+    const dockIcon = path.join(__dirname, '..', 'assets', 'icon.png')
+    if (fs.existsSync(dockIcon)) app.dock?.setIcon(dockIcon)
   }
   criarJanela()
 })
 app.on('before-quit', () => { isQuitting = true })
 app.on('second-instance', () => { mainWindow?.show(); mainWindow?.focus() })
 app.on('window-all-closed', e => { if (!isQuitting) e.preventDefault() })
-app.on('activate', () => { if (process.platform === 'darwin') app.dock.show(); mainWindow?.show() })
+app.on('activate', () => { if (process.platform === 'darwin') app.dock?.show(); mainWindow?.show() })
 
 // ---------------------------------------------------------------------------
 // IPC — comunicação com o renderer
@@ -448,8 +392,12 @@ ipcMain.handle('servico:reativar', () => {
 
 ipcMain.handle('servico:desinstalar', async () => {
   const { execSync } = require('child_process')
-  const plist = path.join(app.getPath('home'), 'Library/LaunchAgents/com.forsterfilmes.lembretes.plist')
-  try { execSync(`launchctl unload "${plist}" 2>/dev/null; rm -f "${plist}"`) } catch {}
+  if (process.platform === 'win32') {
+    try { execSync('schtasks /delete /tn "ForsterLembretes" /f', { stdio: 'ignore' }) } catch {}
+  } else {
+    const plist = path.join(app.getPath('home'), 'Library/LaunchAgents/com.forsterfilmes.lembretes.plist')
+    try { execSync(`launchctl unload "${plist}" 2>/dev/null; rm -f "${plist}"`) } catch {}
+  }
   if (waClient) await waClient.destroy()
   log('Sistema desinstalado pelo usuário')
   app.exit(0)

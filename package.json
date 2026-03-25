@@ -5,7 +5,40 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "cli": "node disparar.js"
+    "cli": "node disparar.js",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.forsterfilmes.lembretes",
+    "productName": "Forster Lembretes",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      "disparar.js",
+      "verificar.py"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png",
+      "category": "public.app-category.business"
+    }
   },
   "dependencies": {
     "csv-parse": "^6.2.1",
