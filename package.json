@@ -26,7 +26,12 @@
       "verificar.py"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "arm64"]
+        }
+      ],
       "icon": "assets/icon.ico"
     },
     "nsis": {
@@ -35,7 +40,12 @@
       "allowToChangeInstallationDirectory": false
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        }
+      ],
       "icon": "assets/icon.png",
       "category": "public.app-category.business"
     }
