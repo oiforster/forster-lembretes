@@ -15,6 +15,18 @@ body {
 }
 
 /* ---- Sidebar ---- */
+/* Drag region dedicado — cobre o topo da janela inteira, z-index alto mas pointer-events só no drag */
+.drag-region {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  -webkit-app-region: drag;
+  z-index: 9999;
+  pointer-events: none; /* deixa cliques passarem para elementos abaixo */
+}
+
 .sidebar {
   width: 200px;
   min-width: 200px;
@@ -30,12 +42,7 @@ body {
   gap: 8px;
   padding: 16px 16px 20px;
   border-bottom: 1px solid #2c2c2e;
-  -webkit-app-region: drag;
 }
-
-.sidebar-header button,
-.sidebar-header a,
-.sidebar-header input { -webkit-app-region: no-drag; }
 
 .logo { font-size: 22px; }
 

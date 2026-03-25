@@ -155,6 +155,65 @@ NSWorkspace.shared.setIcon(image, forFile: path, options: [])
 SWIFT
 
 # -----------------------------------------------------------------------------
+# 9. Atalho em /Applications
+# -----------------------------------------------------------------------------
+info "Criando app em /Applications..."
+
+APP="/Applications/Forster Lembretes.app"
+mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/Resources"
+
+cat > "$APP/Contents/MacOS/ForsterLembretes" << 'LAUNCHER'
+#!/bin/bash
+NODE="$(which node 2>/dev/null || echo /opt/homebrew/bin/node)"
+DEST="$HOME/Documents/forster-lembretes"
+"$NODE" "$DEST/node_modules/.bin/electron" "$DEST" &
+LAUNCHER
+
+chmod +x "$APP/Contents/MacOS/ForsterLembretes"
+
+cat > "$APP/Contents/Info.plist" << 'INFOPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>ForsterLembretes</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.forsterfilmes.lembretes</string>
+    <key>CFBundleName</key>
+    <string>Forster Lembretes</string>
+    <key>CFBundleDisplayName</key>
+    <string>Forster Lembretes</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSUIElement</key>
+    <false/>
+</dict>
+</plist>
+INFOPLIST
+
+xattr -cr "$APP" 2>/dev/null || true
+
+# Aplica ícone 💸 no .app
+swift - << 'SWIFT' 2>/dev/null && ok "Ícone do app aplicado" || true
+import AppKit
+let size = NSSize(width: 512, height: 512)
+let image = NSImage(size: size)
+image.lockFocus()
+if let font = NSFont(name: "Apple Color Emoji", size: 420) {
+    let attrs: [NSAttributedString.Key: Any] = [.font: font]
+    NSAttributedString(string: "💸", attributes: attrs).draw(at: NSPoint(x: 46, y: 46))
+}
+image.unlockFocus()
+NSWorkspace.shared.setIcon(image, forFile: "/Applications/Forster Lembretes.app", options: [])
+SWIFT
+
+ok "App criado em /Applications — abre pelo Spotlight ou Launchpad"
+
+# -----------------------------------------------------------------------------
 # Conclusão
 # -----------------------------------------------------------------------------
 echo ""

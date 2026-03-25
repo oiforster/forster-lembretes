@@ -18,6 +18,10 @@ const CONFIG_PATH = path.join(ROOT, 'config.json')
 
 fs.mkdirSync(path.join(ROOT, 'logs'), { recursive: true })
 
+// Garante instância única — se já estiver rodando, foca a janela existente
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) { app.quit(); process.exit(0) }
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -191,6 +195,11 @@ function alternarPausa () {
 }
 
 function criarCliente () {
+  // Remove lock files do Chromium que ficam presos quando o app fecha abruptamente
+  ;['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
+    try { fs.unlinkSync(path.join(SESSAO_DIR, 'session', f)) } catch (_) {}
+  })
+
   waClient = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSAO_DIR }),
     puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] }
@@ -365,6 +374,7 @@ app.whenReady().then(() => {
   criarJanela()
 })
 app.on('before-quit', () => { isQuitting = true })
+app.on('second-instance', () => { mainWindow?.show(); mainWindow?.focus() })
 app.on('window-all-closed', e => { if (!isQuitting) e.preventDefault() })
 app.on('activate', () => { if (process.platform === 'darwin') app.dock.show(); mainWindow?.show() })
 
