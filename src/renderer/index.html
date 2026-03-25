@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forster Lembretes</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Wizard de primeiro acesso -->
+  <div class="wizard-overlay hidden" id="wizardOverlay">
+    <div class="wizard">
+      <div class="wizard-steps" id="wizardSteps">
+
+        <!-- Passo 1 -->
+        <div class="wizard-step active" data-step="1">
+          <div class="wizard-emoji">💸</div>
+          <h2>Bem-vindo ao Forster Lembretes</h2>
+          <p>Sistema de lembretes automáticos de pagamento via WhatsApp. Vamos configurar tudo em 3 passos rápidos.</p>
+          <div class="form-group">
+            <label>Nome da sua agência ou empresa</label>
+            <input type="text" id="wzAgencia" placeholder="Ex: Forster Filmes">
+          </div>
+          <div class="wizard-nav">
+            <div></div>
+            <button class="btn btn-primary" id="wzProximo1">Próximo →</button>
+          </div>
+        </div>
+
+        <!-- Passo 2 -->
+        <div class="wizard-step" data-step="2">
+          <div class="wizard-emoji">📱</div>
+          <h2>Conectar WhatsApp</h2>
+          <p>O sistema vai enviar as mensagens pelo seu número. Abra o WhatsApp no celular e vá em <strong>Configurações → Aparelhos conectados → Adicionar aparelho</strong> e escaneie o código abaixo.</p>
+          <div id="wzQrArea" class="wz-qr-area">
+            <div class="loading">Aguardando conexão com WhatsApp...</div>
+          </div>
+          <div id="wzConectado" class="wz-conectado hidden">✅ WhatsApp conectado com sucesso!</div>
+          <div class="wizard-nav">
+            <button class="btn btn-secondary" id="wzVoltar2">← Voltar</button>
+            <button class="btn btn-primary" id="wzProximo2" disabled>Próximo →</button>
+          </div>
+        </div>
+
+        <!-- Passo 3 -->
+        <div class="wizard-step" data-step="3">
+          <div class="wizard-emoji">👥</div>
+          <h2>Adicionar primeiro cliente</h2>
+          <p>Adicione um cliente agora para começar. Você pode adicionar mais depois na aba Clientes.</p>
+          <div class="form-group">
+            <label>Nome do cliente</label>
+            <input type="text" id="wzCliente" placeholder="Ex: Vanessa Mainardi">
+          </div>
+          <div class="form-group">
+            <label>WhatsApp (com DDI e DDD, sem espaços)</label>
+            <input type="text" id="wzWhatsapp" placeholder="5551984058878">
+          </div>
+          <div class="form-group">
+            <label>Dia de vencimento</label>
+            <input type="number" id="wzDia" min="1" max="31" placeholder="10">
+          </div>
+          <div class="form-group">
+            <label>Chave PIX</label>
+            <input type="text" id="wzPix" placeholder="CNPJ, CPF ou e-mail">
+          </div>
+          <div class="wizard-nav">
+            <button class="btn btn-secondary" id="wzVoltar3">← Voltar</button>
+            <button class="btn btn-primary" id="wzConcluir">Concluir configuração ✓</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Indicador de passos -->
+      <div class="wizard-dots">
+        <span class="wz-dot active" data-dot="1"></span>
+        <span class="wz-dot" data-dot="2"></span>
+        <span class="wz-dot" data-dot="3"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">💸</span>
+        <span class="logo-title">Forster Lembretes</span>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-page="dashboard">
+          <span class="nav-icon">⚡</span> Dashboard
+        </button>
+        <button class="nav-item" data-page="clientes">
+          <span class="nav-icon">👥</span> Clientes
+        </button>
+        <button class="nav-item" data-page="config">
+          <span class="nav-icon">⚙️</span> Configurações
+        </button>
+        <button class="nav-item" data-page="logs">
+          <span class="nav-icon">📋</span> Histórico
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="wa-status" id="waStatusBadge">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Conectando...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Conteúdo principal -->
+    <main class="content">
+
+      <!-- Dashboard -->
+      <section class="page active" id="page-dashboard">
+        <div class="page-header">
+          <h1>Dashboard</h1>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="card-label">Clientes ativos</div>
+            <div class="card-value" id="totalAtivos">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Próximo envio</div>
+            <div class="card-value" id="proximoEnvio">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Vencimentos em 5 dias</div>
+            <div class="card-value" id="vencimentos5">—</div>
+          </div>
+        </div>
+
+        <div class="section-title">WhatsApp</div>
+        <div class="wa-panel" id="waPanel">
+          <div id="waConectado" class="wa-state hidden">
+            <div class="wa-ok">✅ Conectado e pronto para enviar</div>
+            <div class="wa-actions">
+              <button class="btn btn-secondary" id="btnDisparar">Rodar verificação agora</button>
+              <button class="btn btn-pausar" id="btnPausar">⏸ Pausar serviço</button>
+            </div>
+          </div>
+          <div id="waQr" class="wa-state hidden">
+            <p>Escaneie o QR code com o WhatsApp do celular:<br>
+               <small>Configurações → Aparelhos conectados → Adicionar aparelho</small></p>
+            <img id="qrImg" src="" alt="QR Code" style="display:block;margin-top:16px;border-radius:8px;width:220px">
+          </div>
+          <div id="waConectando" class="wa-state">
+            <div class="loading">Iniciando conexão com WhatsApp...</div>
+          </div>
+          <div id="waErro" class="wa-state hidden">
+            <div class="wa-erro">❌ Falha na autenticação. Reinicie o app.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Clientes -->
+      <section class="page" id="page-clientes">
+        <div class="page-header">
+          <h1>Clientes</h1>
+          <button class="btn btn-primary" id="btnNovoCliente">+ Novo cliente</button>
+        </div>
+
+        <table class="table" id="tabelaClientes">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>WhatsApp</th>
+              <th>Vencimento</th>
+              <th>Chave PIX</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbodyClientes"></tbody>
+        </table>
+      </section>
+
+      <!-- Configurações -->
+      <section class="page" id="page-config">
+        <div class="page-header">
+          <h1>Configurações</h1>
+        </div>
+
+        <div class="form-group">
+          <label>Horário de envio</label>
+          <input type="time" id="cfgHorario" value="09:00">
+          <small>O sistema verificará vencimentos todos os dias neste horário.</small>
+          <div class="aviso-requisito">
+            ⚠️ O computador precisa estar <strong>ligado e conectado à internet</strong> no horário configurado para que os envios aconteçam.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Dias de antecedência do aviso</label>
+          <input type="number" id="cfgDias" min="1" max="60" value="5">
+          <small>Quantos dias antes do vencimento o lembrete é enviado.</small>
+        </div>
+
+        <div class="form-group">
+          <label>Mensagem de lembrete</label>
+          <div class="var-section">
+            <div class="var-intro">
+              <span class="var-intro-icon">💡</span>
+              <span>Escreva sua mensagem livremente. Clique nos campos abaixo para inserir informações que serão preenchidas automaticamente com os dados de cada cliente no momento do envio.</span>
+            </div>
+            <div class="var-buttons">
+              <button type="button" class="var-btn" data-var="{nome}">
+                <span class="var-btn-label">Nome do cliente</span>
+                <span class="var-btn-example">ex: Vanessa Mainardi</span>
+              </button>
+              <button type="button" class="var-btn" data-var="{mes}/{ano}">
+                <span class="var-btn-label">Mês e ano do pagamento</span>
+                <span class="var-btn-example">ex: março/2026</span>
+              </button>
+              <button type="button" class="var-btn" data-var="{data}">
+                <span class="var-btn-label">Data de vencimento</span>
+                <span class="var-btn-example">ex: 10/04</span>
+              </button>
+              <button type="button" class="var-btn" data-var="{pix}">
+                <span class="var-btn-label">Chave PIX</span>
+                <span class="var-btn-example">ex: 35.935.852/0001-55</span>
+              </button>
+            </div>
+          </div>
+          <textarea id="cfgMensagem" rows="4"></textarea>
+          <div class="msg-actions">
+            <button type="button" class="btn-restaurar" id="btnRestaurarMensagem">↩ Restaurar mensagem padrão</button>
+            <button type="button" class="btn btn-secondary" id="btnPreview">👁 Pré-visualizar</button>
+          </div>
+          <div class="msg-preview hidden" id="msgPreview"></div>
+        </div>
+
+
+
+        <button class="btn btn-primary" id="btnSalvarConfig">Salvar configurações</button>
+        <span class="save-feedback hidden" id="configFeedback">✓ Salvo</span>
+
+        <div class="danger-zone">
+          <div class="danger-title">Zona de risco</div>
+          <div class="danger-row">
+            <div>
+              <strong>Desinstalar o sistema</strong>
+              <div class="danger-desc">Remove o agendamento automático e desconecta o WhatsApp. Os arquivos de configuração e o histórico são mantidos.</div>
+            </div>
+            <button class="btn btn-desinstalar" id="btnDesinstalar">Desinstalar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Logs -->
+      <section class="page" id="page-logs">
+        <div class="page-header">
+          <h1>Histórico de envios</h1>
+          <button class="btn btn-secondary" id="btnAtualizarLog">Atualizar</button>
+        </div>
+        <div class="log-list" id="logList"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Modal cliente -->
+  <div class="modal-overlay hidden" id="modalOverlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitulo">Novo cliente</h2>
+        <button class="modal-close" id="btnFecharModal">✕</button>
+      </div>
+      <div class="form-group">
+        <label>Nome do cliente</label>
+        <input type="text" id="fCliente" placeholder="Ex: Vanessa Mainardi">
+      </div>
+      <div class="form-group">
+        <label>WhatsApp (com DDI e DDD, sem espaços)</label>
+        <input type="text" id="fWhatsapp" placeholder="5551984058878">
+      </div>
+      <div class="form-group">
+        <label>Dia de vencimento</label>
+        <input type="number" id="fDia" min="1" max="31" placeholder="10">
+      </div>
+      <div class="form-group">
+        <label>Chave PIX</label>
+        <input type="text" id="fPix" placeholder="CNPJ, CPF ou e-mail">
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="fAtivo" checked> Cliente ativo
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btnCancelarModal">Cancelar</button>
+        <button class="btn btn-primary" id="btnSalvarCliente">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -98,9 +98,11 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 7. LaunchAgent — agendamento automático às 9h
+# 7. LaunchAgent — abre o app automaticamente no login
 # -----------------------------------------------------------------------------
-info "Configurando agendamento automático (9h diário)..."
+info "Configurando inicialização automática no login..."
+
+NODE_BIN="$(which node)"
 
 cat > "$PLIST" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -112,26 +114,19 @@ cat > "$PLIST" << PLIST
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
-        <string>${DEST}/verificar.py</string>
+        <string>${NODE_BIN}</string>
+        <string>${DEST}/node_modules/.bin/electron</string>
+        <string>${DEST}</string>
     </array>
 
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>
-        <integer>9</integer>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
+    <key>RunAtLoad</key>
+    <true/>
 
     <key>StandardOutPath</key>
     <string>${DEST}/logs/output.log</string>
 
     <key>StandardErrorPath</key>
     <string>${DEST}/logs/error.log</string>
-
-    <key>RunAtLoad</key>
-    <false/>
 </dict>
 </plist>
 PLIST
