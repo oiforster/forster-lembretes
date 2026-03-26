@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('api', {
   rodarDisparo:   ()        => ipcRenderer.invoke('disparo:rodar'),
   onDisparoConcluido: (fn)  => ipcRenderer.on('disparo:concluido', (_, d) => fn(d)),
 
+  // Mensagens livres e agendadas
+  enviarLivre:        (dados) => ipcRenderer.invoke('mensagem:enviar-livre', dados),
+  agendarMensagem:    (dados) => ipcRenderer.invoke('mensagem:agendar', dados),
+  listarAgendadas:    ()      => ipcRenderer.invoke('mensagem:listar-agendadas'),
+  cancelarAgendada:   (id)    => ipcRenderer.invoke('mensagem:cancelar-agendada', id),
+  onAgendadosAtualizado: (fn) => ipcRenderer.on('agendados:atualizado', (_, l) => fn(l)),
+
   // Serviço
   pausarServico:    ()   => ipcRenderer.invoke('servico:pausar'),
   reativarServico:  ()   => ipcRenderer.invoke('servico:reativar'),

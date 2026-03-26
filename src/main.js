@@ -166,6 +166,7 @@ function criarCliente () {
     log('WhatsApp conectado')
     atualizarTray()
     configurarAgendamento()
+    configurarMensagensAgendadas()
   })
 
   waClient.on('auth_failure', () => {
@@ -212,6 +213,75 @@ async function enviarMensagem (cliente, dataFmt) {
   await chat.sendMessage(mensagem)
   await new Promise(r => setTimeout(r, 5000))
   return mensagem
+}
+
+// ---------------------------------------------------------------------------
+// Envio livre — mensagem customizada para qualquer número
+// ---------------------------------------------------------------------------
+const AGENDADOS_PATH = path.join(ROOT, 'agendados.json')
+
+function lerAgendados () {
+  try { return JSON.parse(fs.readFileSync(AGENDADOS_PATH, 'utf8')) }
+  catch { return [] }
+}
+
+function salvarAgendados (lista) {
+  fs.writeFileSync(AGENDADOS_PATH, JSON.stringify(lista, null, 2))
+}
+
+async function enviarMensagemLivre (numero, mensagem) {
+  if (waStatus !== 'conectado') throw new Error('WhatsApp não está conectado')
+
+  const num = numero.replace(/\D/g, '')
+  const suffix = num.slice(-8)
+  const chats = await waClient.getChats()
+  const chat = chats.find(c => !c.isGroup && c.id.user.endsWith(suffix))
+
+  if (!chat) throw new Error(`Chat não encontrado para ${numero}`)
+
+  await chat.sendMessage(mensagem)
+  await new Promise(r => setTimeout(r, 5000))
+  log(`✓ Mensagem livre enviada → ${numero}`)
+  return true
+}
+
+// Jobs agendados (mensagens livres com horário programado)
+let jobsAgendados = []
+
+function configurarMensagensAgendadas () {
+  // Cancela jobs anteriores
+  jobsAgendados.forEach(j => j.job?.cancel())
+  jobsAgendados = []
+
+  const agendados = lerAgendados()
+  const agora = new Date()
+
+  for (const item of agendados) {
+    const dataEnvio = new Date(item.dataEnvio)
+    if (dataEnvio <= agora) continue // já passou
+
+    const job = schedule.scheduleJob(dataEnvio, async () => {
+      try {
+        await enviarMensagemLivre(item.numero, item.mensagem)
+        new Notification({
+          title: '💸 Forster Lembretes',
+          body: `✓ Mensagem agendada enviada → ${item.numero}`
+        }).show()
+      } catch (e) {
+        log(`✗ Falha ao enviar agendada → ${item.numero}: ${e.message}`)
+        new Notification({
+          title: '💸 Forster Lembretes',
+          body: `✗ Falha ao enviar para ${item.numero}`
+        }).show()
+      }
+      // Remove da lista após envio
+      const lista = lerAgendados().filter(a => a.id !== item.id)
+      salvarAgendados(lista)
+      mainWindow?.webContents.send('agendados:atualizado', lista)
+    })
+
+    jobsAgendados.push({ id: item.id, job })
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +458,40 @@ ipcMain.handle('servico:reativar', () => {
   mainWindow?.webContents.send('servico:status', false)
   log('Serviço reativado pelo usuário')
   return true
+})
+
+// ---------------------------------------------------------------------------
+// IPC — Envio livre e agendamento
+// ---------------------------------------------------------------------------
+ipcMain.handle('mensagem:enviar-livre', async (_, { numero, mensagem }) => {
+  await enviarMensagemLivre(numero, mensagem)
+  return true
+})
+
+ipcMain.handle('mensagem:agendar', (_, { numero, mensagem, dataEnvio }) => {
+  const agendados = lerAgendados()
+  const item = {
+    id: Date.now().toString(),
+    numero,
+    mensagem,
+    dataEnvio,
+    criadoEm: new Date().toISOString()
+  }
+  agendados.push(item)
+  salvarAgendados(agendados)
+  configurarMensagensAgendadas()
+  log(`Mensagem agendada → ${numero} para ${new Date(dataEnvio).toLocaleString('pt-BR')}`)
+  return item
+})
+
+ipcMain.handle('mensagem:listar-agendadas', () => lerAgendados())
+
+ipcMain.handle('mensagem:cancelar-agendada', (_, id) => {
+  const agendados = lerAgendados().filter(a => a.id !== id)
+  salvarAgendados(agendados)
+  configurarMensagensAgendadas()
+  log(`Mensagem agendada cancelada (id: ${id})`)
+  return agendados
 })
 
 ipcMain.handle('servico:desinstalar', async () => {
