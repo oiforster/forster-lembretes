@@ -233,13 +233,21 @@ async function enviarMensagemLivre (numero, mensagem) {
   if (waStatus !== 'conectado') throw new Error('WhatsApp não está conectado')
 
   const num = numero.replace(/\D/g, '')
+
+  // Tenta encontrar chat existente primeiro (mais confiável)
   const suffix = num.slice(-8)
   const chats = await waClient.getChats()
   const chat = chats.find(c => !c.isGroup && c.id.user.endsWith(suffix))
 
-  if (!chat) throw new Error(`Chat não encontrado para ${numero}`)
+  if (chat) {
+    await chat.sendMessage(mensagem)
+  } else {
+    // Número sem conversa carregada: resolve o ID via getNumberId
+    const numberId = await waClient.getNumberId(num)
+    if (!numberId) throw new Error(`Número ${numero} não encontrado no WhatsApp`)
+    await waClient.sendMessage(numberId._serialized, mensagem)
+  }
 
-  await chat.sendMessage(mensagem)
   await new Promise(r => setTimeout(r, 5000))
   log(`✓ Mensagem livre enviada → ${numero}`)
   return true
