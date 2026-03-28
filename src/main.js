@@ -138,15 +138,65 @@ function alternarPausa () {
   log(cfg.pausado ? 'Serviço pausado pelo usuário' : 'Serviço reativado pelo usuário')
 }
 
+function matarChromiumOrfao () {
+  try {
+    const { execSync } = require('child_process')
+    // Mata processos Chromium órfãos do Puppeteer (não do Google Chrome nem do Electron)
+    const ps = execSync('ps aux', { encoding: 'utf8' })
+    ps.split('\n')
+      .filter(l => l.includes('chromium') || l.includes('headless_shell'))
+      .filter(l => l.includes('sessao/session') || l.includes('puppeteer'))
+      .filter(l => !l.includes('Google Chrome'))
+      .forEach(l => {
+        const pid = l.trim().split(/\s+/)[1]
+        if (pid) try { process.kill(Number(pid), 'SIGKILL') } catch (_) {}
+      })
+  } catch (_) {}
+}
+
 function criarCliente () {
+  // Mata processos Chromium órfãos que impedem o Puppeteer de iniciar
+  matarChromiumOrfao()
+
   // Remove lock files do Chromium que ficam presos quando o app fecha abruptamente
   ;['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
     try { fs.unlinkSync(path.join(SESSAO_DIR, 'session', f)) } catch (_) {}
   })
 
+  // Resolve o caminho do Chrome for Testing no cache do Puppeteer
+  const cacheBase = path.join(require('os').homedir(), '.cache', 'puppeteer', 'chrome')
+  let chromePath = null
+  try {
+    const dirs = fs.readdirSync(cacheBase).filter(d => d.startsWith('mac_arm'))
+    if (dirs.length > 0) {
+      const latest = dirs.sort().pop()
+      const candidate = path.join(cacheBase, latest, 'chrome-mac-arm64',
+        'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing')
+      if (fs.existsSync(candidate)) chromePath = candidate
+    }
+  } catch (_) {}
+
+  // Fallback para o Google Chrome instalado
+  if (!chromePath) {
+    const fallback = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    if (fs.existsSync(fallback)) chromePath = fallback
+  }
+
+  const puppeteerOpts = {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--no-first-run'
+    ]
+  }
+  if (chromePath) puppeteerOpts.executablePath = chromePath
+
   waClient = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSAO_DIR }),
-    puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] }
+    puppeteer: puppeteerOpts
   })
 
   waClient.on('qr', async qr => {
@@ -175,14 +225,32 @@ function criarCliente () {
     atualizarTray()
   })
 
-  waClient.on('disconnected', () => {
+  waClient.on('disconnected', async () => {
     waStatus = 'desconectado'
     mainWindow?.webContents.send('wa:status', 'desconectado')
-    log('WhatsApp desconectado')
+    log('WhatsApp desconectado — tentando reconectar em 30s...')
     atualizarTray()
+
+    // Reconexão automática após desconexão
+    await new Promise(r => setTimeout(r, 30000))
+    try {
+      await waClient.destroy().catch(() => {})
+    } catch (_) {}
+    criarCliente()
   })
 
-  waClient.initialize()
+  waClient.initialize().catch(async (err) => {
+    log(`Erro ao inicializar WhatsApp: ${err.message} — tentando novamente em 15s...`)
+    waStatus = 'erro'
+    mainWindow?.webContents.send('wa:status', 'erro')
+    atualizarTray()
+
+    await new Promise(r => setTimeout(r, 15000))
+    try {
+      await waClient.destroy().catch(() => {})
+    } catch (_) {}
+    criarCliente()
+  })
 }
 
 const MSG_PADRAO = 'Olá, {nome}! Lembrete automático da Forster Filmes: o pagamento de {mes}/{ano} vence dia {data}. Chave PIX: {pix}. Em caso de dúvidas, estamos à disposição!'
