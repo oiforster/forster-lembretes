@@ -47,7 +47,10 @@
         }
       ],
       "icon": "assets/icon.png",
-      "category": "public.app-category.business"
+      "category": "public.app-category.business",
+      "extendInfo": {
+        "NSUserNotificationAlertStyle": "alert"
+      }
     }
   },
   "dependencies": {

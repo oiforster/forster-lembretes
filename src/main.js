@@ -155,6 +155,8 @@ function matarChromiumOrfao () {
 }
 
 function criarCliente () {
+  log('Iniciando conexão WhatsApp...')
+
   // Mata processos Chromium órfãos que impedem o Puppeteer de iniciar
   matarChromiumOrfao()
 
@@ -182,6 +184,8 @@ function criarCliente () {
     if (fs.existsSync(fallback)) chromePath = fallback
   }
 
+  log(chromePath ? `Chrome encontrado: ${chromePath}` : 'Chrome NÃO encontrado — Puppeteer usará o padrão')
+
   const puppeteerOpts = {
     headless: true,
     args: [
@@ -199,15 +203,25 @@ function criarCliente () {
     puppeteer: puppeteerOpts
   })
 
+  waClient.on('loading_screen', (percent) => {
+    log(`WhatsApp carregando: ${percent}%`)
+  })
+
   waClient.on('qr', async qr => {
+    log('QR code recebido — aguardando escaneamento')
     waStatus = 'aguardando_qr'
     const dataUrl = await QRCode.toDataURL(qr, { width: 220, margin: 1 })
     mainWindow?.webContents.send('wa:qr', dataUrl)
   })
 
   waClient.on('authenticated', () => {
+    log('Sessão autenticada — carregando chats...')
     waStatus = 'autenticando'
     mainWindow?.webContents.send('wa:status', 'autenticando')
+  })
+
+  waClient.on('auth_failure', () => {
+    log('Falha na autenticação — sessão expirada?')
   })
 
   waClient.on('ready', () => {
@@ -219,6 +233,7 @@ function criarCliente () {
     configurarMensagensAgendadas()
   })
 
+  // auth_failure já logado acima — aqui só atualiza estado da UI
   waClient.on('auth_failure', () => {
     waStatus = 'erro'
     mainWindow?.webContents.send('wa:status', 'erro')
@@ -239,6 +254,7 @@ function criarCliente () {
     criarCliente()
   })
 
+  log('Chamando waClient.initialize()...')
   waClient.initialize().catch(async (err) => {
     log(`Erro ao inicializar WhatsApp: ${err.message} — tentando novamente em 15s...`)
     waStatus = 'erro'
@@ -341,13 +357,15 @@ function configurarMensagensAgendadas () {
         await enviarMensagemLivre(item.numero, item.mensagem)
         new Notification({
           title: '💸 Forster Lembretes',
-          body: `✓ Mensagem agendada enviada → ${item.numero}`
+          body: `✓ Mensagem agendada enviada → ${item.numero}`,
+          timeoutType: 'never'
         }).show()
       } catch (e) {
         log(`✗ Falha ao enviar agendada → ${item.numero}: ${e.message}`)
         new Notification({
           title: '💸 Forster Lembretes',
-          body: `✗ Falha ao enviar para ${item.numero}`
+          body: `✗ Falha ao enviar para ${item.numero}`,
+          timeoutType: 'never'
         }).show()
       }
       // Remove da lista após envio
@@ -412,11 +430,11 @@ async function verificarEDisparar () {
 
   // Notificação do sistema
   if (enviados.length === 0 && erros.length === 0) {
-    new Notification({ title: '💸 Forster Lembretes', body: 'Sem mensagens para hoje.' }).show()
+    new Notification({ title: '💸 Forster Lembretes', body: 'Sem mensagens para hoje.', timeoutType: 'never' }).show()
   } else if (erros.length === 0) {
-    new Notification({ title: '💸 Forster Lembretes', body: `✓ ${enviados.length} lembrete(s) enviado(s)` }).show()
+    new Notification({ title: '💸 Forster Lembretes', body: `✓ ${enviados.length} lembrete(s) enviado(s)`, timeoutType: 'never' }).show()
   } else {
-    new Notification({ title: '💸 Forster Lembretes', body: `${enviados.length} enviado(s), ${erros.length} com erro` }).show()
+    new Notification({ title: '💸 Forster Lembretes', body: `${enviados.length} enviado(s), ${erros.length} com erro`, timeoutType: 'never' }).show()
   }
 
   mainWindow?.webContents.send('disparo:concluido', { enviados, erros })
@@ -456,6 +474,7 @@ function criarJanela () {
 }
 
 app.whenReady().then(() => {
+  log('App iniciado')
   // Ícone no Dock (macOS only)
   if (process.platform === 'darwin') {
     const dockIcon = path.join(__dirname, '..', 'assets', 'icon.png')
