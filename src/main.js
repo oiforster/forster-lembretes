@@ -141,16 +141,22 @@ function alternarPausa () {
 function matarChromiumOrfao () {
   try {
     const { execSync } = require('child_process')
-    // Mata processos Chromium órfãos do Puppeteer (não do Google Chrome nem do Electron)
-    const ps = execSync('ps aux', { encoding: 'utf8' })
-    ps.split('\n')
-      .filter(l => l.includes('chromium') || l.includes('headless_shell'))
-      .filter(l => l.includes('sessao/session') || l.includes('puppeteer'))
-      .filter(l => !l.includes('Google Chrome'))
-      .forEach(l => {
-        const pid = l.trim().split(/\s+/)[1]
-        if (pid) try { process.kill(Number(pid), 'SIGKILL') } catch (_) {}
-      })
+    if (process.platform === 'win32') {
+      // Windows: mata processos chrome/chromium órfãos do Puppeteer
+      try { execSync('taskkill /F /IM chrome.exe /FI "WINDOWTITLE eq about:blank"', { stdio: 'ignore' }) } catch (_) {}
+      try { execSync('taskkill /F /IM headless_shell.exe', { stdio: 'ignore' }) } catch (_) {}
+    } else {
+      // macOS/Linux: mata processos Chromium órfãos do Puppeteer (não do Google Chrome nem do Electron)
+      const ps = execSync('ps aux', { encoding: 'utf8' })
+      ps.split('\n')
+        .filter(l => l.includes('chromium') || l.includes('headless_shell'))
+        .filter(l => l.includes('sessao/session') || l.includes('puppeteer'))
+        .filter(l => !l.includes('Google Chrome'))
+        .forEach(l => {
+          const pid = l.trim().split(/\s+/)[1]
+          if (pid) try { process.kill(Number(pid), 'SIGKILL') } catch (_) {}
+        })
+    }
   } catch (_) {}
 }
 
@@ -168,20 +174,44 @@ function criarCliente () {
   // Resolve o caminho do Chrome for Testing no cache do Puppeteer
   const cacheBase = path.join(require('os').homedir(), '.cache', 'puppeteer', 'chrome')
   let chromePath = null
-  try {
-    const dirs = fs.readdirSync(cacheBase).filter(d => d.startsWith('mac_arm'))
-    if (dirs.length > 0) {
-      const latest = dirs.sort().pop()
-      const candidate = path.join(cacheBase, latest, 'chrome-mac-arm64',
-        'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing')
-      if (fs.existsSync(candidate)) chromePath = candidate
-    }
-  } catch (_) {}
 
-  // Fallback para o Google Chrome instalado
-  if (!chromePath) {
-    const fallback = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-    if (fs.existsSync(fallback)) chromePath = fallback
+  if (process.platform === 'darwin') {
+    try {
+      const dirs = fs.readdirSync(cacheBase).filter(d => d.startsWith('mac_arm') || d.startsWith('mac-'))
+      if (dirs.length > 0) {
+        const latest = dirs.sort().pop()
+        const candidate = path.join(cacheBase, latest, 'chrome-mac-arm64',
+          'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing')
+        if (fs.existsSync(candidate)) chromePath = candidate
+      }
+    } catch (_) {}
+
+    // Fallback para o Google Chrome instalado no Mac
+    if (!chromePath) {
+      const fallback = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+      if (fs.existsSync(fallback)) chromePath = fallback
+    }
+  } else if (process.platform === 'win32') {
+    // Puppeteer cache no Windows
+    const winCacheBase = path.join(require('os').homedir(), '.cache', 'puppeteer', 'chrome')
+    try {
+      const dirs = fs.readdirSync(winCacheBase).filter(d => d.startsWith('win'))
+      if (dirs.length > 0) {
+        const latest = dirs.sort().pop()
+        const candidate = path.join(winCacheBase, latest, 'chrome-win64', 'chrome.exe')
+        if (fs.existsSync(candidate)) chromePath = candidate
+      }
+    } catch (_) {}
+
+    // Fallback para o Chrome instalado no Windows
+    if (!chromePath) {
+      const winPaths = [
+        path.join(process.env.PROGRAMFILES || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env['PROGRAMFILES(X86)'] || '', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'Application', 'chrome.exe')
+      ]
+      chromePath = winPaths.find(p => fs.existsSync(p)) || null
+    }
   }
 
   log(chromePath ? `Chrome encontrado: ${chromePath}` : 'Chrome NÃO encontrado — Puppeteer usará o padrão')
@@ -222,6 +252,9 @@ function criarCliente () {
 
   waClient.on('auth_failure', () => {
     log('Falha na autenticação — sessão expirada?')
+    waStatus = 'erro'
+    mainWindow?.webContents.send('wa:status', 'erro')
+    atualizarTray()
   })
 
   waClient.on('ready', () => {
@@ -232,13 +265,6 @@ function criarCliente () {
     configurarAgendamento()
     configurarMensagensAgendadas()
     iniciarWatcherAgendados()
-  })
-
-  // auth_failure já logado acima — aqui só atualiza estado da UI
-  waClient.on('auth_failure', () => {
-    waStatus = 'erro'
-    mainWindow?.webContents.send('wa:status', 'erro')
-    atualizarTray()
   })
 
   waClient.on('disconnected', async () => {
@@ -541,7 +567,9 @@ function criarJanela () {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false
     }
   })
 
@@ -571,7 +599,7 @@ app.whenReady().then(() => {
 })
 app.on('before-quit', () => { isQuitting = true })
 app.on('second-instance', () => { mainWindow?.show(); mainWindow?.focus() })
-app.on('window-all-closed', e => { if (!isQuitting) e.preventDefault() })
+app.on('window-all-closed', () => { /* Não encerra — fica no tray */ })
 app.on('activate', () => { if (process.platform === 'darwin') app.dock?.show(); mainWindow?.show() })
 
 // ---------------------------------------------------------------------------
