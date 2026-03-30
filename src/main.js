@@ -360,24 +360,37 @@ async function enviarMensagemLivre (numero, mensagem) {
 
 async function enviarMensagemComMedia (numero, mensagem, mediaPath) {
   if (waStatus !== 'conectado') throw new Error('WhatsApp não está conectado')
-  if (!fs.existsSync(mediaPath)) throw new Error(`Arquivo não encontrado: ${mediaPath}`)
 
-  const media = MessageMedia.fromFilePath(mediaPath)
+  // Suporta string (1 arquivo) ou array (múltiplos arquivos)
+  const paths = Array.isArray(mediaPath) ? mediaPath : [mediaPath]
+  const existentes = paths.filter(p => fs.existsSync(p))
+  if (existentes.length === 0) throw new Error(`Nenhum arquivo encontrado: ${paths.join(', ')}`)
+
   const num = numero.replace(/\D/g, '')
   const suffix = num.slice(-8)
   const chats = await waClient.getChats()
   const chat = chats.find(c => !c.isGroup && c.id.user.endsWith(suffix))
 
-  if (chat) {
-    await chat.sendMessage(media, { caption: mensagem })
-  } else {
-    const numberId = await waClient.getNumberId(num)
+  let numberId = null
+  if (!chat) {
+    numberId = await waClient.getNumberId(num)
     if (!numberId) throw new Error(`Número ${numero} não encontrado no WhatsApp`)
-    await waClient.sendMessage(numberId._serialized, media, { caption: mensagem })
   }
 
-  await new Promise(r => setTimeout(r, 5000))
-  log(`✓ Mensagem com mídia enviada → ${numero} (${path.basename(mediaPath)})`)
+  for (let i = 0; i < existentes.length; i++) {
+    const media = MessageMedia.fromFilePath(existentes[i])
+    // Caption só no primeiro arquivo
+    const opts = i === 0 && mensagem ? { caption: mensagem } : {}
+    if (chat) {
+      await chat.sendMessage(media, opts)
+    } else {
+      await waClient.sendMessage(numberId._serialized, media, opts)
+    }
+    await new Promise(r => setTimeout(r, 3000))
+  }
+
+  const nomes = existentes.map(p => path.basename(p)).join(', ')
+  log(`✓ Mensagem com mídia enviada → ${numero} (${nomes})`)
   return true
 }
 
