@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, Notification, Tray, Menu, nativeImage } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const { Client, LocalAuth } = require('whatsapp-web.js')
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js')
 const schedule = require('node-schedule')
 const { parse } = require('csv-parse/sync')
 const { stringify } = require('csv-stringify/sync')
@@ -231,6 +231,7 @@ function criarCliente () {
     atualizarTray()
     configurarAgendamento()
     configurarMensagensAgendadas()
+    iniciarWatcherAgendados()
   })
 
   // auth_failure já logado acima — aqui só atualiza estado da UI
@@ -316,6 +317,26 @@ function salvarAgendados (lista) {
 async function enviarMensagemLivre (numero, mensagem) {
   if (waStatus !== 'conectado') throw new Error('WhatsApp não está conectado')
 
+  // Suporte a grupos: chatId direto (@g.us) ou busca por nome
+  if (numero.includes('@g.us')) {
+    await waClient.sendMessage(numero, mensagem)
+    await new Promise(r => setTimeout(r, 5000))
+    log(`✓ Mensagem livre enviada → grupo ${numero}`)
+    return true
+  }
+
+  // Suporte a grupos: campo "grupo:" + nome parcial do grupo
+  if (numero.startsWith('grupo:')) {
+    const nomeBusca = numero.slice(6).trim().toLowerCase()
+    const chatsAll = await waClient.getChats()
+    const grupo = chatsAll.find(c => c.isGroup && c.name.toLowerCase().includes(nomeBusca))
+    if (!grupo) throw new Error(`Grupo "${nomeBusca}" não encontrado`)
+    await grupo.sendMessage(mensagem)
+    await new Promise(r => setTimeout(r, 5000))
+    log(`✓ Mensagem livre enviada → grupo "${grupo.name}" (${grupo.id._serialized})`)
+    return true
+  }
+
   const num = numero.replace(/\D/g, '')
 
   // Tenta encontrar chat existente primeiro (mais confiável)
@@ -337,6 +358,29 @@ async function enviarMensagemLivre (numero, mensagem) {
   return true
 }
 
+async function enviarMensagemComMedia (numero, mensagem, mediaPath) {
+  if (waStatus !== 'conectado') throw new Error('WhatsApp não está conectado')
+  if (!fs.existsSync(mediaPath)) throw new Error(`Arquivo não encontrado: ${mediaPath}`)
+
+  const media = MessageMedia.fromFilePath(mediaPath)
+  const num = numero.replace(/\D/g, '')
+  const suffix = num.slice(-8)
+  const chats = await waClient.getChats()
+  const chat = chats.find(c => !c.isGroup && c.id.user.endsWith(suffix))
+
+  if (chat) {
+    await chat.sendMessage(media, { caption: mensagem })
+  } else {
+    const numberId = await waClient.getNumberId(num)
+    if (!numberId) throw new Error(`Número ${numero} não encontrado no WhatsApp`)
+    await waClient.sendMessage(numberId._serialized, media, { caption: mensagem })
+  }
+
+  await new Promise(r => setTimeout(r, 5000))
+  log(`✓ Mensagem com mídia enviada → ${numero} (${path.basename(mediaPath)})`)
+  return true
+}
+
 // Jobs agendados (mensagens livres com horário programado)
 let jobsAgendados = []
 
@@ -354,7 +398,11 @@ function configurarMensagensAgendadas () {
 
     const job = schedule.scheduleJob(dataEnvio, async () => {
       try {
-        await enviarMensagemLivre(item.numero, item.mensagem)
+        if (item.media) {
+          await enviarMensagemComMedia(item.numero, item.mensagem, item.media)
+        } else {
+          await enviarMensagemLivre(item.numero, item.mensagem)
+        }
         new Notification({
           title: '💸 Forster Lembretes',
           body: `✓ Mensagem agendada enviada → ${item.numero}`,
@@ -376,6 +424,32 @@ function configurarMensagensAgendadas () {
 
     jobsAgendados.push({ id: item.id, job })
   }
+}
+
+// ---------------------------------------------------------------------------
+// Polling do agendados.json — recarrega quando modificado externamente
+// ---------------------------------------------------------------------------
+let pollerAgendados = null
+let ultimoMtimeAgendados = 0
+
+function iniciarWatcherAgendados () {
+  if (pollerAgendados) return
+  // Registra mtime atual para não disparar na primeira leitura
+  try {
+    ultimoMtimeAgendados = fs.statSync(AGENDADOS_PATH).mtimeMs
+  } catch (_) {}
+
+  pollerAgendados = setInterval(() => {
+    try {
+      const mtime = fs.statSync(AGENDADOS_PATH).mtimeMs
+      if (mtime > ultimoMtimeAgendados) {
+        ultimoMtimeAgendados = mtime
+        log('agendados.json modificado externamente — recarregando agendamentos')
+        configurarMensagensAgendadas()
+        mainWindow?.webContents.send('agendados:atualizado', lerAgendados())
+      }
+    } catch (_) {}
+  }, 10000) // checa a cada 10 segundos
 }
 
 // ---------------------------------------------------------------------------
@@ -560,6 +634,11 @@ ipcMain.handle('servico:reativar', () => {
 // ---------------------------------------------------------------------------
 ipcMain.handle('mensagem:enviar-livre', async (_, { numero, mensagem }) => {
   await enviarMensagemLivre(numero, mensagem)
+  return true
+})
+
+ipcMain.handle('mensagem:enviar-media', async (_, { numero, mensagem, media }) => {
+  await enviarMensagemComMedia(numero, mensagem, media)
   return true
 })
 
