@@ -453,7 +453,8 @@ async function init () {
   await atualizarDashboard()
 
   // Mostra wizard se for primeiro acesso
-  if (!cfg.configurado) {
+  // Dupla checagem: ignora wizard se agencia já estiver configurada (proteção contra race condition)
+  if (!cfg.configurado && !cfg.agencia) {
     document.getElementById('wizardOverlay').classList.remove('hidden')
     // Se WhatsApp já estava conectado antes de abrir o wizard, habilita botão
     if (status === 'conectado') {

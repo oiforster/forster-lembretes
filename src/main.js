@@ -59,11 +59,13 @@ function salvarClientes (clientes) {
 // ---------------------------------------------------------------------------
 // WhatsApp
 // ---------------------------------------------------------------------------
-let waClient   = null
-let waStatus   = 'desconectado'
-let mainWindow = null
-let tray       = null
-let isQuitting = false
+let waClient         = null
+let waStatus         = 'desconectado'
+let mainWindow       = null
+let tray             = null
+let isQuitting       = false
+let isCreatingClient = false  // guard contra chamadas concorrentes de criarCliente()
+let qrWatchdog       = null   // timer: se ficar 10min em loop de QR, limpa sessão e reinicia
 
 // ---------------------------------------------------------------------------
 // Tray — ícone na barra de menu
@@ -160,7 +162,24 @@ function matarChromiumOrfao () {
   } catch (_) {}
 }
 
+function limparSessao () {
+  try {
+    const sessionDir = path.join(SESSAO_DIR, 'session')
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true })
+      log('Sessão local removida para forçar reautenticação')
+    }
+  } catch (e) {
+    log(`Erro ao remover sessão: ${e.message}`)
+  }
+}
+
 function criarCliente () {
+  if (isCreatingClient) {
+    log('criarCliente() ignorado — inicialização já em andamento')
+    return
+  }
+  isCreatingClient = true
   log('Iniciando conexão WhatsApp...')
 
   // Mata processos Chromium órfãos que impedem o Puppeteer de iniciar
@@ -242,6 +261,18 @@ function criarCliente () {
     waStatus = 'aguardando_qr'
     const dataUrl = await QRCode.toDataURL(qr, { width: 220, margin: 1 })
     mainWindow?.webContents.send('wa:qr', dataUrl)
+
+    // Watchdog: se ficar 10min em loop de QR sem autenticar, limpa sessão e reinicia
+    if (!qrWatchdog) {
+      qrWatchdog = setTimeout(async () => {
+        qrWatchdog = null
+        log('Loop de QR detectado (10min sem autenticar) — limpando sessão e reiniciando...')
+        limparSessao()
+        try { await waClient.destroy().catch(() => {}) } catch (_) {}
+        isCreatingClient = false
+        criarCliente()
+      }, 10 * 60 * 1000)
+    }
   })
 
   waClient.on('authenticated', () => {
@@ -250,14 +281,21 @@ function criarCliente () {
     mainWindow?.webContents.send('wa:status', 'autenticando')
   })
 
-  waClient.on('auth_failure', () => {
-    log('Falha na autenticação — sessão expirada?')
+  waClient.on('auth_failure', async () => {
+    log('Falha na autenticação — limpando sessão e reiniciando...')
+    if (qrWatchdog) { clearTimeout(qrWatchdog); qrWatchdog = null }
     waStatus = 'erro'
     mainWindow?.webContents.send('wa:status', 'erro')
     atualizarTray()
+    limparSessao()
+    await new Promise(r => setTimeout(r, 5000))
+    try { await waClient.destroy().catch(() => {}) } catch (_) {}
+    isCreatingClient = false
+    criarCliente()
   })
 
   waClient.on('ready', () => {
+    if (qrWatchdog) { clearTimeout(qrWatchdog); qrWatchdog = null }
     waStatus = 'conectado'
     mainWindow?.webContents.send('wa:status', 'conectado')
     log('WhatsApp conectado')
@@ -268,6 +306,7 @@ function criarCliente () {
   })
 
   waClient.on('disconnected', async () => {
+    if (qrWatchdog) { clearTimeout(qrWatchdog); qrWatchdog = null }
     waStatus = 'desconectado'
     mainWindow?.webContents.send('wa:status', 'desconectado')
     log('WhatsApp desconectado — tentando reconectar em 30s...')
@@ -275,23 +314,22 @@ function criarCliente () {
 
     // Reconexão automática após desconexão
     await new Promise(r => setTimeout(r, 30000))
-    try {
-      await waClient.destroy().catch(() => {})
-    } catch (_) {}
+    try { await waClient.destroy().catch(() => {}) } catch (_) {}
+    isCreatingClient = false
     criarCliente()
   })
 
   log('Chamando waClient.initialize()...')
   waClient.initialize().catch(async (err) => {
+    if (qrWatchdog) { clearTimeout(qrWatchdog); qrWatchdog = null }
     log(`Erro ao inicializar WhatsApp: ${err.message} — tentando novamente em 15s...`)
     waStatus = 'erro'
     mainWindow?.webContents.send('wa:status', 'erro')
     atualizarTray()
 
     await new Promise(r => setTimeout(r, 15000))
-    try {
-      await waClient.destroy().catch(() => {})
-    } catch (_) {}
+    try { await waClient.destroy().catch(() => {}) } catch (_) {}
+    isCreatingClient = false
     criarCliente()
   })
 }
@@ -436,12 +474,14 @@ function configurarMensagensAgendadas () {
     if (dataEnvio <= agora) continue // já passou
 
     const job = schedule.scheduleJob(dataEnvio, async () => {
+      let sucesso = false
       try {
         if (item.media) {
           await enviarMensagemComMedia(item.numero, item.mensagem, item.media)
         } else {
           await enviarMensagemLivre(item.numero, item.mensagem)
         }
+        sucesso = true
         new Notification({
           title: '💸 Forster Lembretes',
           body: `✓ Mensagem agendada enviada → ${item.numero}`,
@@ -449,13 +489,36 @@ function configurarMensagensAgendadas () {
         }).show()
       } catch (e) {
         log(`✗ Falha ao enviar agendada → ${item.numero}: ${e.message}`)
-        new Notification({
-          title: '💸 Forster Lembretes',
-          body: `✗ Falha ao enviar para ${item.numero}`,
-          timeoutType: 'never'
-        }).show()
+        const tentativas = (item.tentativas || 0) + 1
+        if (tentativas < 3) {
+          // Reagenda em 15min
+          const novaData = new Date(Date.now() + 15 * 60 * 1000).toISOString()
+          const lista = lerAgendados()
+          const idx = lista.findIndex(a => a.id === item.id)
+          if (idx !== -1) {
+            lista[idx].tentativas = tentativas
+            lista[idx].dataEnvio = novaData
+            salvarAgendados(lista)
+            mainWindow?.webContents.send('agendados:atualizado', lista)
+            log(`↺ Reagendando tentativa ${tentativas}/3 → ${item.numero} em 15min`)
+          }
+          new Notification({
+            title: '💸 Forster Lembretes',
+            body: `↺ Tentativa ${tentativas}/3 falhou — reagendado em 15min (${item.numero})`,
+            timeoutType: 'never'
+          }).show()
+          return // não remove da lista — será reprocessado pelo watcher
+        } else {
+          log(`✗ Removendo após 3 tentativas sem sucesso → ${item.numero}`)
+          new Notification({
+            title: '💸 Forster Lembretes',
+            body: `✗ Falha definitiva após 3 tentativas → ${item.numero}`,
+            timeoutType: 'never'
+          }).show()
+        }
       }
-      // Remove da lista após envio
+
+      // Remove da lista: sempre após sucesso, ou após esgotar tentativas
       const lista = lerAgendados().filter(a => a.id !== item.id)
       salvarAgendados(lista)
       mainWindow?.webContents.send('agendados:atualizado', lista)
